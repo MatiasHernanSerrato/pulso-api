@@ -13,13 +13,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/MatiasHernanSerrato/pulso-api/internal/config"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/health"
 )
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("no pude cargar la config: %v", err)
 	}
 
 	r := chi.NewRouter()
@@ -32,13 +33,15 @@ func main() {
 	r.Get("/healthz", health.Handler())
 
 	srv := &http.Server{
-		Addr:              ":" + port,
+		Addr:              ":" + cfg.Port,
 		Handler:           r,
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go func() {
-		log.Printf("pulso-api escuchando en :%s", port)
+		log.Printf("pulso-api [%s] escuchando en :%s", cfg.Env, cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
 		}
