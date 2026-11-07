@@ -1,4 +1,4 @@
-.PHONY: help db-up db-down fmt lint test run
+.PHONY: help db-up db-down fmt lint test run graphql
 
 help:
 	@echo "targets:"
@@ -8,6 +8,10 @@ help:
 	@echo "  lint     - corre linter"
 	@echo "  test     - corre tests"
 	@echo "  run      - corre el server"
+	@echo "  graphql  - regenera resolvers y models de gqlgen"
+
+graphql:
+	go run github.com/99designs/gqlgen generate
 
 db-up:
 	docker compose up -d db

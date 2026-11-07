@@ -1,0 +1,6 @@
+# Schema de pulso-api. Vamos armando los tipos de a poco.
+# Por ahora solo un ping para arrancar.
+
+type Query {
+  ping: String!
+}
