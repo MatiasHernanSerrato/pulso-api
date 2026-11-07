@@ -1,6 +1,43 @@
-# Schema de pulso-api. Vamos armando los tipos de a poco.
-# Por ahora solo un ping para arrancar.
+# Schema de pulso-api.
+# Pulso trackea peso (salud) + plata (gastos) + alertas de anomalias.
+# Empezamos por el modulo de peso.
+
+scalar Time
+
+"""
+Weight representa una medicion de peso corporal en un momento dado.
+El campo bodyFat es opcional porque no todas las balanzas lo miden.
+"""
+type Weight {
+  id: ID!
+  userId: ID!
+  kg: Float!
+  bodyFatPct: Float
+  musclePct: Float
+  measuredAt: Time!
+  source: WeightSource!
+  note: String
+}
+
+"""
+De donde vino la medicion. BLE es balanza inteligente, MANUAL es carga a mano,
+HEALTHKIT / HEALTH_CONNECT es sync desde el dispositivo.
+"""
+enum WeightSource {
+  MANUAL
+  BLE
+  HEALTHKIT
+  HEALTH_CONNECT
+}
+
+input WeightsFilter {
+  from: Time
+  to: Time
+  limit: Int = 50
+}
 
 type Query {
   ping: String!
+  weights(filter: WeightsFilter): [Weight!]!
+  weight(id: ID!): Weight
 }
