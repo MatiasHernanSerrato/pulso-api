@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/MatiasHernanSerrato/pulso-api/internal/config"
+	"github.com/MatiasHernanSerrato/pulso-api/internal/db"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/health"
 )
 
@@ -22,6 +23,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("no pude cargar la config: %v", err)
 	}
+
+	ctx := context.Background()
+	pool, err := db.NewPool(ctx, db.DefaultPoolConfig(cfg.DatabaseURL))
+	if err != nil {
+		log.Fatalf("no pude conectar a la db: %v", err)
+	}
+	defer pool.Close()
+	log.Println("db conectada")
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -52,9 +61,10 @@ func main() {
 	<-stop
 
 	log.Println("bajando server...")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	_ = shutdownCtx
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("shutdown error: %v", err)
 	}
 	log.Println("listo, chau")
