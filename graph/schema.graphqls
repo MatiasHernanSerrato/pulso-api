@@ -4,6 +4,12 @@
 
 scalar Time
 
+# Directiva @auth: marca un field como protegido. El runtime se fija si hay
+# un user id en el context y rechaza con error UNAUTHENTICATED si no.
+# La aplicamos en mutations primero porque las queries publicas (ping)
+# tienen sentido sin login.
+directive @auth on FIELD_DEFINITION
+
 """
 Weight representa una medicion de peso corporal en un momento dado.
 El campo bodyFat es opcional porque no todas las balanzas lo miden.
@@ -38,6 +44,24 @@ input WeightsFilter {
 
 type Query {
   ping: String!
-  weights(filter: WeightsFilter): [Weight!]!
-  weight(id: ID!): Weight
+  weights(filter: WeightsFilter): [Weight!]! @auth
+  weight(id: ID!): Weight @auth
+}
+
+"""
+Input para crear una medicion a mano o desde balanza.
+El userId no viaja aca, lo sacamos del token.
+"""
+input CreateWeightInput {
+  kg: Float!
+  bodyFatPct: Float
+  musclePct: Float
+  measuredAt: Time
+  source: WeightSource = MANUAL
+  note: String
+}
+
+type Mutation {
+  createWeight(input: CreateWeightInput!): Weight! @auth
+  deleteWeight(id: ID!): Boolean! @auth
 }

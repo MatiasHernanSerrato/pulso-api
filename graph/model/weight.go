@@ -52,3 +52,14 @@ type WeightsFilter struct {
 	To    *time.Time `json:"to,omitempty"`
 	Limit *int       `json:"limit,omitempty"`
 }
+
+// CreateWeightInput es el payload del mutation createWeight.
+// MeasuredAt es opcional, si no viene tomamos time.Now en el resolver.
+type CreateWeightInput struct {
+	Kg         float64      `json:"kg"`
+	BodyFatPct *float64     `json:"bodyFatPct,omitempty"`
+	MusclePct  *float64     `json:"musclePct,omitempty"`
+	MeasuredAt *time.Time   `json:"measuredAt,omitempty"`
+	Source     WeightSource `json:"source"`
+	Note       *string      `json:"note,omitempty"`
+}

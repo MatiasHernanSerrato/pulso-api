@@ -42,8 +42,14 @@ func (r *queryResolver) Ping(_ context.Context) (string, error) {
 }
 
 // Weights devuelve todas las mediciones que matchean el filtro.
+// Solo del usuario del token: nunca mezclamos data entre users.
 // TODO: cuando este la db real, mover esto a una query sqlc.
-func (r *queryResolver) Weights(_ context.Context, filter *model.WeightsFilter) ([]*model.Weight, error) {
+func (r *queryResolver) Weights(ctx context.Context, filter *model.WeightsFilter) ([]*model.Weight, error) {
+	userID, err := RequireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -54,6 +60,9 @@ func (r *queryResolver) Weights(_ context.Context, filter *model.WeightsFilter) 
 
 	var out []*model.Weight
 	for _, w := range r.weights {
+		if w.UserID != userID {
+			continue
+		}
 		if !matchesFilter(w, filter) {
 			continue
 		}
@@ -71,13 +80,18 @@ func (r *queryResolver) Weights(_ context.Context, filter *model.WeightsFilter) 
 	return out, nil
 }
 
-// Weight busca una medicion por id.
-func (r *queryResolver) Weight(_ context.Context, id string) (*model.Weight, error) {
+// Weight busca una medicion por id, chequeando que sea del user del token.
+func (r *queryResolver) Weight(ctx context.Context, id string) (*model.Weight, error) {
+	userID, err := RequireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	w, ok := r.weights[id]
-	if !ok {
+	if !ok || w.UserID != userID {
 		return nil, ErrNotFound
 	}
 	return w, nil
