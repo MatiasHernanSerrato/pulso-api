@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/MatiasHernanSerrato/pulso-api/internal/auth"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/config"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/db"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/health"
@@ -32,6 +33,11 @@ func main() {
 	defer pool.Close()
 	log.Println("db conectada")
 
+	signer, err := auth.NewSigner(cfg.JWTSecret)
+	if err != nil {
+		log.Fatalf("no pude crear el signer de jwt: %v", err)
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -40,6 +46,17 @@ func main() {
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	r.Get("/healthz", health.Handler())
+
+	// Rutas /api/* siempre piden token. Mas adelante aca cuelga el handler
+	// de graphql detras del middleware de auth.
+	r.Route("/api", func(r chi.Router) {
+		r.Use(auth.Middleware(signer))
+		r.Get("/me", func(w http.ResponseWriter, req *http.Request) {
+			id, _ := auth.UserFromContext(req.Context())
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"user_id":"` + id.String() + `"}`))
+		})
+	})
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
