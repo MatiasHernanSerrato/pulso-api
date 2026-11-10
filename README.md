@@ -77,12 +77,80 @@ Todas tienen default razonable salvo `DATABASE_URL` que es obligatoria.
 
 ```
 cmd/server/      main del proceso
+cmd/migrate/     corre migraciones contra la db
 internal/config/ carga de environment
 internal/health/ healthcheck handler
+internal/auth/   jwt + middleware
+internal/db/     pool pgx y queries generadas por sqlc
+internal/weights/ dominio de peso (conversiones + service)
+graph/           schema graphql y resolvers
+db/              migrations + queries sqlc
 ```
 
-Mas adelante, cuando sume gqlgen, va a aparecer `internal/graph/`, y cuando
-meta sqlc algo asi como `internal/db/`.
+## Autenticacion
+
+La api usa JWT con HS256. El secret se configura via `JWT_SECRET` (en prod,
+que sea algo random de al menos 32 bytes, nunca el default).
+
+### Flow basico
+
+1. El cliente llama al endpoint de login (todavia no esta expuesto, lo armo
+   junto con el schema de auth en la proxima tanda) con email + password.
+2. El server verifica el hash y devuelve un token firmado con TTL de 12hs.
+3. El cliente guarda el token y lo manda en cada request como
+   `Authorization: Bearer <token>`.
+4. El middleware valida la firma, el issuer y la expiracion, extrae el
+   `sub` como UUID y lo mete en el context de la request.
+5. Los resolvers de GraphQL protegidos con `@auth` sacan el user del
+   context y filtran sus datos. Si no hay user, devuelven
+   `UNAUTHENTICATED`.
+
+### Que valida el middleware
+
+- Header `Authorization` presente y con prefijo `Bearer ` (case-insensitive,
+  hay varios clientes que mandan todo en minuscula).
+- Algoritmo de firma: solo `HS256`. Un token con `alg=none` se rechaza
+  antes de mirar los claims (el truco clasico de los primeros 2010s).
+- `iss` tiene que ser `pulso-api`.
+- `exp` no vencido.
+- `sub` tiene que ser un UUID parseable.
+
+Cuando algo falla el server responde `401` con un json chico:
+
+```json
+{ "error": "auth: token expirado", "code": "expired_token" }
+```
+
+El campo `code` es lo que mira el cliente para decidir si refrescar o
+mandar al usuario de nuevo al login. Posibles: `invalid_token`,
+`expired_token`, `wrong_issuer`, `bad_subject`.
+
+### Variantes del middleware
+
+- `auth.Middleware(signer)`: obligatorio. Si falla el token, corta con 401
+  y no sigue. Lo uso en `/api/*`.
+- `auth.Optional(signer)`: opcional. Si el token es valido, mete el user
+  en el context. Si no, deja pasar sin user. Util para GraphQL donde
+  algunas queries (como `ping`) son publicas.
+
+El guard a nivel resolver es `graph.RequireUser(ctx)`, que devuelve el
+user id o `ErrUnauthenticated`. En resolvers que ya son 100% protegidos
+(porque el router ya aplico `Middleware`), igual lo llamo por defensa en
+profundidad.
+
+### Probarlo a mano
+
+Hay una ruta chica `/api/me` que devuelve el user del token. Sirve de
+smoke test:
+
+```bash
+# generar un token con el helper que hay en los tests, o desde codigo:
+TOKEN="pega-tu-token-aca"
+
+curl -s http://localhost:8080/api/me \
+  -H "Authorization: Bearer $TOKEN"
+# -> {"user_id":"..."}
+```
 
 ## Por que Go y no Node
 
