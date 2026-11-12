@@ -12,14 +12,27 @@ import (
 )
 
 type Querier interface {
+	ArchiveCategory(ctx context.Context, arg ArchiveCategoryParams) error
+	CreateCategory(ctx context.Context, arg CreateCategoryParams) (Category, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteTransaction(ctx context.Context, arg DeleteTransactionParams) error
 	DeleteWeight(ctx context.Context, arg DeleteWeightParams) error
+	GetCategory(ctx context.Context, arg GetCategoryParams) (Category, error)
+	GetTransaction(ctx context.Context, arg GetTransactionParams) (Transaction, error)
 	GetUserByEmail(ctx context.Context, lower string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetWeight(ctx context.Context, arg GetWeightParams) (Weight, error)
+	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	InsertWeight(ctx context.Context, arg InsertWeightParams) (Weight, error)
 	LatestWeight(ctx context.Context, userID uuid.UUID) (Weight, error)
+	ListCategoriesByKind(ctx context.Context, arg ListCategoriesByKindParams) ([]Category, error)
+	ListCategoriesForUser(ctx context.Context, userID pgtype.UUID) ([]Category, error)
+	ListTransactionsByCategory(ctx context.Context, arg ListTransactionsByCategoryParams) ([]Transaction, error)
+	ListTransactionsByUser(ctx context.Context, arg ListTransactionsByUserParams) ([]Transaction, error)
 	ListWeightsByUser(ctx context.Context, arg ListWeightsByUserParams) ([]Weight, error)
+	SumByCategory(ctx context.Context, arg SumByCategoryParams) ([]SumByCategoryRow, error)
+	TransactionByExternalRef(ctx context.Context, arg TransactionByExternalRefParams) (Transaction, error)
+	UpdateCategory(ctx context.Context, arg UpdateCategoryParams) (Category, error)
 	WeightsAvgLastNDays(ctx context.Context, arg WeightsAvgLastNDaysParams) (pgtype.Numeric, error)
 	WeightsCountByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 }
