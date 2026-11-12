@@ -17,6 +17,12 @@ import (
 type MutationResolver interface {
 	CreateWeight(ctx context.Context, input model.CreateWeightInput) (*model.Weight, error)
 	DeleteWeight(ctx context.Context, id string) (bool, error)
+
+	CreateTransaction(ctx context.Context, input model.CreateTransactionInput) (*model.Transaction, error)
+	DeleteTransaction(ctx context.Context, id string) (bool, error)
+	CreateCategory(ctx context.Context, input model.CreateCategoryInput) (*model.Category, error)
+	UpdateCategory(ctx context.Context, input model.UpdateCategoryInput) (*model.Category, error)
+	ArchiveCategory(ctx context.Context, id string) (bool, error)
 }
 
 // Mutation devuelve el mutation resolver.

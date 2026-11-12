@@ -42,10 +42,95 @@ input WeightsFilter {
   limit: Int = 50
 }
 
+# Modulo plata ------------------------------------------------------
+
+"""
+Category agrupa transactions. Puede ser una categoria global de Pulso
+(cuando ownerId es null) o del user (ownerId == el user del token).
+"""
+type Category {
+  id: ID!
+  ownerId: ID
+  name: String!
+  kind: TransactionKind!
+  icon: String
+  color: String
+  archived: Boolean!
+}
+
+"""
+TransactionKind clasifica el signo del movimiento. Lo guardamos de forma
+explicita para no inferirlo del signo del amount (asi un reintegro positivo
+sigue siendo "income" aunque en algun momento alguien lo cargue en negativo).
+"""
+enum TransactionKind {
+  EXPENSE
+  INCOME
+  TRANSFER
+}
+
+"""
+Transaction es un movimiento de plata. amount se guarda en la moneda indicada,
+nunca convertimos del lado del server. Pulso es multi-currency cliente.
+"""
+type Transaction {
+  id: ID!
+  userId: ID!
+  categoryId: ID
+  category: Category
+  occurredAt: Time!
+  amount: Float!
+  currency: String!
+  kind: TransactionKind!
+  note: String
+  externalSource: String
+  externalRef: String
+}
+
+input TransactionsFilter {
+  from: Time
+  to: Time
+  categoryId: ID
+  limit: Int = 100
+}
+
+"""
+Input para crear una transaction a mano o desde un webhook.
+El userId lo sacamos del token.
+Si categoryId es null se intenta inferir del texto del note, con fallback
+a "Otros" del user.
+"""
+input CreateTransactionInput {
+  categoryId: ID
+  occurredAt: Time
+  amount: Float!
+  currency: String = "ARS"
+  kind: TransactionKind!
+  note: String
+}
+
+input CreateCategoryInput {
+  name: String!
+  kind: TransactionKind!
+  icon: String
+  color: String
+}
+
+input UpdateCategoryInput {
+  id: ID!
+  name: String
+  icon: String
+  color: String
+}
+
 type Query {
   ping: String!
   weights(filter: WeightsFilter): [Weight!]! @auth
   weight(id: ID!): Weight @auth
+
+  categories(kind: TransactionKind): [Category!]! @auth
+  transactions(filter: TransactionsFilter): [Transaction!]! @auth
+  transaction(id: ID!): Transaction @auth
 }
 
 """
@@ -64,4 +149,11 @@ input CreateWeightInput {
 type Mutation {
   createWeight(input: CreateWeightInput!): Weight! @auth
   deleteWeight(id: ID!): Boolean! @auth
+
+  createTransaction(input: CreateTransactionInput!): Transaction! @auth
+  deleteTransaction(id: ID!): Boolean! @auth
+
+  createCategory(input: CreateCategoryInput!): Category! @auth
+  updateCategory(input: UpdateCategoryInput!): Category! @auth
+  archiveCategory(id: ID!): Boolean! @auth
 }

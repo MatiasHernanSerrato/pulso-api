@@ -14,12 +14,14 @@ import (
 type Resolver struct {
 	mu      sync.RWMutex
 	weights map[string]*model.Weight
+	tx      *TxStore
 }
 
 // NewResolver crea un resolver con storage en memoria.
 func NewResolver() *Resolver {
 	return &Resolver{
 		weights: make(map[string]*model.Weight),
+		tx:      NewTxStore(),
 	}
 }
 
@@ -29,6 +31,9 @@ type QueryResolver interface {
 	Ping(ctx context.Context) (string, error)
 	Weights(ctx context.Context, filter *model.WeightsFilter) ([]*model.Weight, error)
 	Weight(ctx context.Context, id string) (*model.Weight, error)
+	Categories(ctx context.Context, kind *model.TransactionKind) ([]*model.Category, error)
+	Transactions(ctx context.Context, filter *model.TransactionsFilter) ([]*model.Transaction, error)
+	Transaction(ctx context.Context, id string) (*model.Transaction, error)
 }
 
 // Query devuelve el query resolver.
@@ -113,4 +118,3 @@ func matchesFilter(w *model.Weight, f *model.WeightsFilter) bool {
 	}
 	return true
 }
-
