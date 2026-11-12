@@ -17,6 +17,7 @@ import (
 	"github.com/MatiasHernanSerrato/pulso-api/internal/config"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/db"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/health"
+	"github.com/MatiasHernanSerrato/pulso-api/internal/webhooks"
 )
 
 func main() {
@@ -46,6 +47,11 @@ func main() {
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	r.Get("/healthz", health.Handler())
+
+	// Webhooks externos. No pasan por auth JWT: validan con firma propia.
+	// Mercado Pago aca; otros proveedores van a vivir al lado.
+	mpHandler := webhooks.NewMercadoPagoHandler(cfg.MPWebhookSecret, webhooks.NoopSink{})
+	r.Post("/webhooks/mercadopago", mpHandler.Handler())
 
 	// Rutas /api/* siempre piden token. Mas adelante aca cuelga el handler
 	// de graphql detras del middleware de auth.
