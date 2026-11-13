@@ -54,15 +54,16 @@ Deberias ver algo asi:
 
 Todas tienen default razonable salvo `DATABASE_URL` que es obligatoria.
 
-| Variable        | Default                                                     | Para que                    |
-| --------------- | ----------------------------------------------------------- | --------------------------- |
-| `PORT`          | `8080`                                                      | puerto del HTTP server      |
-| `DATABASE_URL`  | (requerido)                                                 | conexion a postgres         |
-| `LOG_LEVEL`     | `info`                                                      | nivel de logs               |
-| `JWT_SECRET`    | `dev-secret-change-me`                                      | firma de tokens             |
-| `READ_TIMEOUT`  | `15s`                                                       | timeout de lectura HTTP     |
-| `WRITE_TIMEOUT` | `15s`                                                       | timeout de escritura HTTP   |
-| `ENV`           | `development`                                               | prende/apaga modo debug     |
+| Variable             | Default                                                     | Para que                                        |
+| -------------------- | ----------------------------------------------------------- | ----------------------------------------------- |
+| `PORT`               | `8080`                                                      | puerto del HTTP server                          |
+| `DATABASE_URL`       | (requerido)                                                 | conexion a postgres                             |
+| `LOG_LEVEL`          | `info`                                                      | nivel de logs                                   |
+| `JWT_SECRET`         | `dev-secret-change-me`                                      | firma de tokens                                 |
+| `READ_TIMEOUT`       | `15s`                                                       | timeout de lectura HTTP                         |
+| `WRITE_TIMEOUT`      | `15s`                                                       | timeout de escritura HTTP                       |
+| `ENV`                | `development`                                               | prende/apaga modo debug                         |
+| `MP_WEBHOOK_SECRET`  | (vacio)                                                     | secret del webhook de Mercado Pago              |
 
 ## Comandos de Make
 
@@ -83,6 +84,7 @@ internal/health/ healthcheck handler
 internal/auth/   jwt + middleware
 internal/db/     pool pgx y queries generadas por sqlc
 internal/weights/ dominio de peso (conversiones + service)
+internal/webhooks/ handlers HTTP de integraciones (mercadopago, etc)
 graph/           schema graphql y resolvers
 db/              migrations + queries sqlc
 ```
@@ -151,6 +153,114 @@ curl -s http://localhost:8080/api/me \
   -H "Authorization: Bearer $TOKEN"
 # -> {"user_id":"..."}
 ```
+
+## Modelo financiero
+
+Pulso guarda plata como una serie temporal igual que peso. La idea es
+poder graficar "cuanto gaste en comida este mes", "cuanto me entro de
+sueldo en el trimestre", "como evolucionan mis gastos fijos", sin tener
+que inventar una tabla aparte para cada dashboard.
+
+### Entidades
+
+Hay dos tablas en el modulo plata:
+
+- `categories`: agrupadores de gastos e ingresos. Cada una tiene un
+  `kind` (`expense`, `income`, `transfer`) y pueden ser globales (las
+  trae la migration, `user_id = null`) o propias del user. Un user puede
+  renombrar, archivar y crear las que quiera, pero no puede editar las
+  globales: si no le gustan, se archiva la copia global para su user
+  (cuando este el mecanismo de fork) y arma la propia.
+- `transactions`: cada movimiento. Es hypertable sobre `occurred_at`
+  (chunk de 7 dias) con FK a `categories`. Guarda `amount` como
+  `numeric(14,2)` y una `currency` de 3 letras (ISO 4217). Si viene de
+  una integracion, `external_source` dice de donde (`mercadopago`,
+  `cuentaDNI`, etc) y `external_ref` es el id del evento para dedup.
+
+### Reglas de signo
+
+- `expense` siempre guarda el amount en **negativo**.
+- `income` siempre guarda el amount en **positivo**.
+- `transfer` queda como venga (depende del lado de la transferencia).
+
+El resolver `createTransaction` normaliza antes de insertar, asi los
+`SUM()` por `kind` funcionan directo sin tener que hacer `ABS()` ni
+casos especiales. Si en algun momento aparecen "reintegros" (expense con
+monto positivo, porque te devolvieron plata) los guardo como `income`
+categorizado como "Reintegro", no como expense positivo. Mas facil que
+discutir con los charts.
+
+### Monedas
+
+El server no convierte. Guardo cada transaction en la moneda original y
+la conversion a ARS la hago en el cliente con los tipos de cambio
+cacheados. Esto es a proposito: si el cliente cambia el tipo de cambio
+(porque en Argentina hay varios) no quiero reescribir la historia.
+
+Hay ganas de agregar una tabla `fx_rates` para cachear cotizaciones en
+el server y exponerlas por GraphQL, pero no es parte del alcance del
+portfolio demo.
+
+### Deduplicacion
+
+Cuando una transaction viene de una integracion (Mercado Pago, por
+ejemplo), el par `(user_id, external_source, external_ref)` tiene un
+unique index parcial. Si el webhook re-dispara el mismo payment id,
+el insert falla con `23505` y el handler devuelve 200 igual. Ver abajo.
+
+### Webhook de Mercado Pago
+
+MP manda eventos `POST /webhooks/mercadopago` con un header
+`x-signature` firmado con HMAC-SHA256 sobre el string:
+
+```
+id:<data.id>;request-id:<x-request-id>;ts:<timestamp>;
+```
+
+El secret se configura en `MP_WEBHOOK_SECRET` (el que figura en el
+panel de MP al crear la integracion). Si no esta seteado, el endpoint
+responde 503 y loguea un warning. Fuera de dev no tiene sentido tenerlo
+apagado.
+
+El handler ademas:
+
+- Rechaza requests fuera de una ventana de 5 minutos (replay).
+- Deduplica por `x-request-id` en memoria 10 minutos (MP reintenta el
+  mismo evento si no respondemos 200 rapido).
+- Encola el evento validado en un `EventSink`. En dev el sink es un
+  noop que solo loguea. En prod va a ir a un worker que llama a la API
+  de MP con el `data.id`, trae el detalle del payment, infiere la
+  categoria y escribe el row en `transactions` usando los campos
+  `external_source = "mercadopago"` + `external_ref = <payment_id>`
+  para pegarle al unique index de dedup.
+
+### Categorizacion
+
+Por ahora la categoria viaja explicita en el input del mutation. Mas
+adelante quiero meter un clasificador bobo por texto (expresiones
+regulares sobre `note` y `description` del detalle de MP) que sugiera
+la mas probable: "uber" -> Transporte, "disco" -> Super, etc. No es ML,
+es un switch gigante y listo.
+
+Si el user no manda categoria, la transaction queda con `category_id =
+null`. Cuando esto pasa el dashboard las junta como "Sin categoria" y
+el cliente ofrece un bulk-update. Es feo pero prefiero eso a adivinar
+mal y ensuciar las series de tiempo.
+
+### Por que no usar `accounts`
+
+Varias apps del rubro modelan "cuentas" (efectivo, tarjeta, caja de
+ahorro) como tablas separadas y despues tienen una visibilidad lio con
+las transferencias entre cuentas. Pulso arranca con un unico "wallet"
+implicito por user. Si en algun momento aparecen multiples cuentas:
+
+- Se agrega tabla `accounts (id, user_id, name, kind, currency)`.
+- `transactions` gana un `account_id NOT NULL`.
+- La transferencia pasa a ser un par de `transactions` linkeadas por un
+  `transfer_id` (asi el `SUM()` por account sigue dando bien).
+
+Mientras no haya varias cuentas no vale la pena, agrega complejidad sin
+beneficio. Si lo necesitas antes de que lo mueva, abri un issue.
 
 ## Por que Go y no Node
 
