@@ -6,24 +6,24 @@ import "time"
 // Cuando metamos gqlgen generate esto se va a sobreescribir en models_gen.go, por ahora
 // lo mantenemos a mano para poder trabajar los resolvers.
 type Weight struct {
-	ID         string        `json:"id"`
-	UserID     string        `json:"userId"`
-	Kg         float64       `json:"kg"`
-	BodyFatPct *float64      `json:"bodyFatPct,omitempty"`
-	MusclePct  *float64      `json:"musclePct,omitempty"`
-	MeasuredAt time.Time     `json:"measuredAt"`
-	Source     WeightSource  `json:"source"`
-	Note       *string       `json:"note,omitempty"`
+	ID         string       `json:"id"`
+	UserID     string       `json:"userId"`
+	Kg         float64      `json:"kg"`
+	BodyFatPct *float64     `json:"bodyFatPct,omitempty"`
+	MusclePct  *float64     `json:"musclePct,omitempty"`
+	MeasuredAt time.Time    `json:"measuredAt"`
+	Source     WeightSource `json:"source"`
+	Note       *string      `json:"note,omitempty"`
 }
 
 // WeightSource mapea el enum del schema.
 type WeightSource string
 
 const (
-	WeightSourceManual         WeightSource = "MANUAL"
-	WeightSourceBLE            WeightSource = "BLE"
-	WeightSourceHealthKit      WeightSource = "HEALTHKIT"
-	WeightSourceHealthConnect  WeightSource = "HEALTH_CONNECT"
+	WeightSourceManual        WeightSource = "MANUAL"
+	WeightSourceBLE           WeightSource = "BLE"
+	WeightSourceHealthKit     WeightSource = "HEALTHKIT"
+	WeightSourceHealthConnect WeightSource = "HEALTH_CONNECT"
 )
 
 // AllWeightSources sirve para validar valores que vienen de afuera.

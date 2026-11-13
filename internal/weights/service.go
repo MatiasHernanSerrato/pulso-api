@@ -20,10 +20,10 @@ import (
 type Source string
 
 const (
-	SourceManual         Source = "manual"
-	SourceBLE            Source = "ble"
-	SourceHealthKit      Source = "healthkit"
-	SourceHealthConnect  Source = "health_connect"
+	SourceManual        Source = "manual"
+	SourceBLE           Source = "ble"
+	SourceHealthKit     Source = "healthkit"
+	SourceHealthConnect Source = "health_connect"
 )
 
 // Weight es el modelo que viaja por la capa de servicio. Tiene menos

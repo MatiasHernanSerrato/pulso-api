@@ -19,7 +19,7 @@ WHERE id = $1 AND user_id = $2
 `
 
 type ArchiveCategoryParams struct {
-	ID     uuid.UUID `json:"id"`
+	ID     uuid.UUID   `json:"id"`
 	UserID pgtype.UUID `json:"user_id"`
 }
 

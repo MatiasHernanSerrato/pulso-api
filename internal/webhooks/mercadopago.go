@@ -65,10 +65,10 @@ type EventSink interface {
 
 // EventContext junta la metadata que armamos antes de encolar.
 type EventContext struct {
-	EventID   string
-	EventType string
-	UserRef   string
-	LiveMode  bool
+	EventID    string
+	EventType  string
+	UserRef    string
+	LiveMode   bool
 	ReceivedAt time.Time
 }
 
@@ -153,7 +153,9 @@ func (h *MercadoPagoHandler) Handler() http.HandlerFunc {
 }
 
 // verifySignature replica el schema x-signature de MP:
-//   ts=1234,v1=<hmac_sha256_hex>
+//
+//	ts=1234,v1=<hmac_sha256_hex>
+//
 // El manifest que se firma es: "id:<data.id>;request-id:<req>;ts:<ts>;"
 // Con padding de campo vacio si alguno no viene.
 func (h *MercadoPagoHandler) verifySignature(header, requestID, dataID string) error {
