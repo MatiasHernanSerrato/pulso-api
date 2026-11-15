@@ -7,21 +7,32 @@ import (
 	"sync"
 
 	"github.com/MatiasHernanSerrato/pulso-api/graph/model"
+	"github.com/MatiasHernanSerrato/pulso-api/internal/txns"
 )
 
-// Resolver es el root resolver de GraphQL.
-// Por ahora guarda todo en memoria, cuando tengamos la db real lo cambiamos.
+// Resolver es el root resolver de GraphQL. Mantiene weights en memoria
+// mientras no cableamos sqlc (ese va a tener su propio service tambien)
+// y delega transactions al service layer de internal/txns.
 type Resolver struct {
 	mu      sync.RWMutex
 	weights map[string]*model.Weight
-	tx      *TxStore
+	tx      *txns.Service
 }
 
 // NewResolver crea un resolver con storage en memoria.
 func NewResolver() *Resolver {
 	return &Resolver{
 		weights: make(map[string]*model.Weight),
-		tx:      NewTxStore(),
+		tx:      txns.New(),
+	}
+}
+
+// NewResolverWithService permite inyectar un service distinto, util para
+// tests que quieren pre-poblar datos o para cuando pasemos a sqlc.
+func NewResolverWithService(s *txns.Service) *Resolver {
+	return &Resolver{
+		weights: make(map[string]*model.Weight),
+		tx:      s,
 	}
 }
 
