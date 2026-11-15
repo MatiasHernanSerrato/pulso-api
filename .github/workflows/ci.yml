@@ -32,13 +32,24 @@ jobs:
         run: go build ./...
 
       - name: go test
-        run: go test -race -count=1 -coverprofile=coverage.out ./...
+        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
 
-      - name: upload coverage
+      - name: coverage summary
+        run: go tool cover -func=coverage.out | tail -20
+
+      - name: upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
           name: coverage
           path: coverage.out
+
+      - name: upload coverage to codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.out
+          flags: unittests
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   lint:
     name: lint

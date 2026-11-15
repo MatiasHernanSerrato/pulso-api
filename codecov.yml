@@ -1,0 +1,27 @@
+# Config de codecov. La idea: no romper el build por coverage temporal
+# bajo (todavia estamos llenando tests) y no contar como covered el codigo
+# generado por sqlc ni los stubs de gqlgen.
+
+coverage:
+  status:
+    project:
+      default:
+        target: 60%
+        threshold: 2%
+        if_ci_failed: ignore
+    patch:
+      default:
+        target: 70%
+        threshold: 5%
+        if_ci_failed: ignore
+
+ignore:
+  - "internal/db/sqlcgen/**"
+  - "graph/model/**"
+  - "cmd/**"
+  - "**/*_mock.go"
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: true

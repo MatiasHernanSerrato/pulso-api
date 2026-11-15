@@ -1,5 +1,9 @@
 # pulso-api
 
+[![ci](https://github.com/MatiasHernanSerrato/pulso-api/actions/workflows/ci.yml/badge.svg)](https://github.com/MatiasHernanSerrato/pulso-api/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/MatiasHernanSerrato/pulso-api/branch/main/graph/badge.svg)](https://codecov.io/gh/MatiasHernanSerrato/pulso-api)
+[![go report](https://goreportcard.com/badge/github.com/MatiasHernanSerrato/pulso-api)](https://goreportcard.com/report/github.com/MatiasHernanSerrato/pulso-api)
+
 Backend de Pulso, un tracker personal que mezcla salud y plata.
 Idea: una sola API que me deje registrar peso, actividad, gastos e inversiones,
 y sacar graficos decentes sin tener que usar 4 apps distintas.
