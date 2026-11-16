@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,7 +19,7 @@ type Store interface {
 // posible alerta. Ej: el detector de anomalies produce signals de kind
 // weight_anomaly con payload del z-score.
 type Signal struct {
-	Alert    Alert
+	Alert      Alert
 	ReceivedAt time.Time
 }
 
@@ -32,12 +33,17 @@ type Worker struct {
 	// drene. En prod lo dejamos en 256 que para el load actual sobra.
 	in chan Signal
 
-	// Metrics del worker, se exponen en el endpoint /metrics.
-	// Las leemos desde varias goroutines en tests, por eso el lock.
-	mu       sync.Mutex
-	inserted int64
-	duplicates int64
-	failures int64
+	// Metrics del worker. Antes estaban detras de un sync.Mutex pero
+	// el Stats() leia sin tomar el lock, lo que daba -race warnings
+	// en los tests. Las pasamos a atomic.Int64, mas liviano y correcto.
+	inserted   atomic.Int64
+	duplicates atomic.Int64
+	failures   atomic.Int64
+
+	// Lifecycle: cerramos done cuando Run sale para que Stop pueda
+	// esperar a que el worker termine de drenar lo que esta procesando.
+	startOnce sync.Once
+	done      chan struct{}
 }
 
 // NewWorker arma el worker con un buffer dado.
@@ -48,6 +54,7 @@ func NewWorker(store Store, buffer int) *Worker {
 	return &Worker{
 		store: store,
 		in:    make(chan Signal, buffer),
+		done:  make(chan struct{}),
 	}
 }
 
@@ -57,42 +64,53 @@ func (w *Worker) Push(s Signal) {
 	w.in <- s
 }
 
-// Run arranca el loop. Se corta cuando ctx se cancela.
+// Run arranca el loop. Se corta cuando ctx se cancela, drenando antes
+// lo que ya tenia en el canal para que las alertas aceptadas no se pierdan.
 func (w *Worker) Run(ctx context.Context) {
+	w.startOnce.Do(func() {
+		go w.loop(ctx)
+	})
+	<-w.done
+}
+
+func (w *Worker) loop(ctx context.Context) {
+	defer close(w.done)
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			// drena lo que quedo encolado antes de salir.
+			for {
+				select {
+				case sig := <-w.in:
+					w.handle(context.Background(), sig)
+				default:
+					return
+				}
+			}
 		case sig := <-w.in:
 			w.handle(ctx, sig)
 		}
 	}
 }
 
-// handle procesa una signal. Logs y metricas, no mucho mas por ahora.
-// NOTA: esto todavia tiene una race en los counters, se arregla en el
-// commit que dice "fix race condition en alerts worker".
+// handle procesa una signal y actualiza los counters atomicamente.
 func (w *Worker) handle(ctx context.Context, s Signal) {
 	err := w.store.Insert(ctx, s.Alert)
 	switch {
 	case err == nil:
-		// race: estos incrementos deberian ir dentro del Lock pero
-		// el Stats de abajo los lee sin lock. Lo arreglamos aparte.
-		w.inserted++
+		w.inserted.Add(1)
 	case isDup(err):
-		w.duplicates++
+		w.duplicates.Add(1)
 	default:
 		log.Printf("alerts worker: insert fallo kind=%s user=%s err=%v",
 			s.Alert.Kind, s.Alert.UserID, err)
-		w.failures++
+		w.failures.Add(1)
 	}
 }
 
-// Stats devuelve snapshot de los counters. Lee SIN tomar el lock, lo cual
-// es una race condition que el detector de carreras (-race) agarra en los
-// tests. Lo dejamos asi a proposito para que se vea el fix en git blame.
+// Stats devuelve snapshot de los counters. Thread-safe.
 func (w *Worker) Stats() (inserted, duplicates, failures int64) {
-	return w.inserted, w.duplicates, w.failures
+	return w.inserted.Load(), w.duplicates.Load(), w.failures.Load()
 }
 
 // isDup separa el error de duplicado del resto. Lo dejamos como var a
