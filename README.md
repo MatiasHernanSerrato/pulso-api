@@ -26,6 +26,8 @@ Esto es un side project, lo uso para probar cosas que en el laburo no me dejan
 Arrancando. Ya hay /healthz respondiendo y el loader de config. Proximo paso
 es meter gqlgen y las primeras tablas.
 
+Para una vuelta por como esta armado por dentro, ver [docs/architecture.md](docs/architecture.md).
+
 ## Correr local
 
 Necesitas:
