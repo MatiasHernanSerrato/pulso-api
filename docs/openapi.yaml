@@ -1,0 +1,152 @@
+openapi: 3.0.3
+info:
+  title: pulso-api
+  description: |
+    API HTTP de pulso. Cubre endpoints rest (health, webhooks, auth y me) y
+    sirve tambien el endpoint graphql en /query, cuyo schema vive en graph/.
+    Para consultas de pesos, transacciones y alertas usar graphql.
+  version: 0.1.0
+  contact:
+    name: Matias Serrato
+    email: matiashernanserrato@gmail.com
+servers:
+  - url: http://localhost:8080
+    description: dev local
+  - url: https://api.pulso.dev
+    description: produccion (fly.io, pronto)
+
+tags:
+  - name: health
+    description: Liveness y readiness
+  - name: auth
+    description: Emision y validacion de tokens
+  - name: webhooks
+    description: Entradas de proveedores externos
+  - name: graphql
+    description: Endpoint principal de datos
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      description: |
+        Devuelve 200 si el proceso corre. No valida la db a proposito,
+        porque kubernetes/fly matan el pod si falla y queremos que
+        el error de la db se maneje con alertas, no con restarts.
+      responses:
+        "200":
+          description: Vivo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/me:
+    get:
+      tags: [auth]
+      summary: Datos del usuario autenticado
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Usuario actual
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /webhooks/mercadopago:
+    post:
+      tags: [webhooks]
+      summary: Webhook de Mercado Pago
+      description: |
+        No pasa por el middleware de JWT. Mercado Pago firma el payload con
+        hmac-sha256 usando el secret que configuramos en el panel; validamos
+        la firma antes de persistir el evento.
+      parameters:
+        - in: header
+          name: x-signature
+          required: true
+          schema:
+            type: string
+          description: Firma hmac del body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  example: payment
+                data:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+      responses:
+        "200":
+          description: Aceptado
+        "401":
+          description: Firma invalida
+
+  /query:
+    post:
+      tags: [graphql]
+      summary: Endpoint graphql
+      description: |
+        El schema completo vive en graph/schema.graphqls. Pide bearer token
+        salvo en los types marcados con `@public` en el schema.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                variables:
+                  type: object
+                operationName:
+                  type: string
+      responses:
+        "200":
+          description: Respuesta graphql (tanto ok como errores van aca)
+          content:
+            application/json:
+              schema:
+                type: object
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Unauthorized:
+      description: Token faltante o invalido
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: unauthorized

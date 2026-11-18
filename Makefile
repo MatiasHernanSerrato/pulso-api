@@ -1,4 +1,4 @@
-.PHONY: help db-up db-down fmt lint test run graphql
+.PHONY: help db-up db-down fmt lint test run graphql openapi
 
 help:
 	@echo "targets:"
@@ -9,6 +9,10 @@ help:
 	@echo "  test     - corre tests"
 	@echo "  run      - corre el server"
 	@echo "  graphql  - regenera resolvers y models de gqlgen"
+	@echo "  openapi  - valida docs/openapi.yaml"
+
+openapi:
+	bash scripts/openapi-gen.sh docs/openapi.yaml
 
 graphql:
 	go run github.com/99designs/gqlgen generate
