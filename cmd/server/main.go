@@ -17,6 +17,7 @@ import (
 	"github.com/MatiasHernanSerrato/pulso-api/internal/config"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/db"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/health"
+	"github.com/MatiasHernanSerrato/pulso-api/internal/metrics"
 	"github.com/MatiasHernanSerrato/pulso-api/internal/webhooks"
 )
 
@@ -45,8 +46,15 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(metrics.Middleware(func(req *http.Request) string {
+		if rc := chi.RouteContext(req.Context()); rc != nil {
+			return rc.RoutePattern()
+		}
+		return req.URL.Path
+	}))
 
 	r.Get("/healthz", health.Handler())
+	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
 	// Webhooks externos. No pasan por auth JWT: validan con firma propia.
 	// Mercado Pago aca; otros proveedores van a vivir al lado.
