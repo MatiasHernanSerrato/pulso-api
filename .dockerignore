@@ -1,0 +1,14 @@
+.git
+.github
+.gitignore
+.dockerignore
+Makefile
+README.md
+docs/
+docker-compose.yml
+*.md
+*_test.go
+tmp/
+dist/
+coverage.out
+coverage.html
