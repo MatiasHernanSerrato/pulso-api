@@ -30,6 +30,12 @@ bien usados).
 
 ## Arquitectura
 
+<p align="center">
+  <img src="docs/architecture.png" alt="diagrama de la arquitectura de pulso-api" width="900" />
+</p>
+
+El mismo diagrama en Mermaid por si Github no renderiza el PNG.
+
 ```mermaid
 flowchart LR
   subgraph clients[Clientes]
