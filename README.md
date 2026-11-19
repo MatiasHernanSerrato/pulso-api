@@ -1,15 +1,96 @@
 # pulso-api
 
 [![ci](https://github.com/MatiasHernanSerrato/pulso-api/actions/workflows/ci.yml/badge.svg)](https://github.com/MatiasHernanSerrato/pulso-api/actions/workflows/ci.yml)
+[![docker](https://github.com/MatiasHernanSerrato/pulso-api/actions/workflows/docker.yml/badge.svg)](https://github.com/MatiasHernanSerrato/pulso-api/actions/workflows/docker.yml)
 [![codecov](https://codecov.io/gh/MatiasHernanSerrato/pulso-api/branch/main/graph/badge.svg)](https://codecov.io/gh/MatiasHernanSerrato/pulso-api)
 [![go report](https://goreportcard.com/badge/github.com/MatiasHernanSerrato/pulso-api)](https://goreportcard.com/report/github.com/MatiasHernanSerrato/pulso-api)
 
-Backend de Pulso, un tracker personal que mezcla salud y plata.
-Idea: una sola API que me deje registrar peso, actividad, gastos e inversiones,
-y sacar graficos decentes sin tener que usar 4 apps distintas.
+Backend de Pulso, un tracker personal que mezcla salud y plata. La idea
+es tener una sola API que me deje registrar peso, actividad, gastos e
+inversiones, y sacar graficos decentes sin tener que usar 4 apps
+distintas.
 
-Esto es un side project, lo uso para probar cosas que en el laburo no me dejan
-(TimescaleDB, GraphQL federado, Go con generics bien usados).
+Esto es un side project. Lo uso para probar cosas que en el laburo no
+me dejan (TimescaleDB, GraphQL con directives de auth, Go con generics
+bien usados).
+
+## Indice
+
+- [Arquitectura](#arquitectura)
+- [Stack](#stack)
+- [Correr local](#correr-local)
+- [Variables de entorno](#variables-de-entorno)
+- [Comandos de Make](#comandos-de-make)
+- [Estructura](#estructura)
+- [Auth](#autenticacion)
+- [Modelo financiero](#modelo-financiero)
+- [Deteccion de anomalias](#deteccion-de-anomalias)
+- [Observabilidad](#observabilidad)
+- [Docker y despliegue](#docker-y-despliegue)
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+  subgraph clients[Clientes]
+    MOB[pulso-mobile<br/>Flutter]
+    WEB[pulso-web<br/>Next.js RSC]
+    CURL[curl / tests]
+  end
+
+  subgraph api[pulso-api]
+    direction TB
+    R[chi router]
+    GQL[graphql<br/>gqlgen]
+    MW[auth JWT<br/>middleware]
+    WH[webhooks<br/>mercadopago]
+    SVC[service layer<br/>weights / txns / alerts]
+    MET[/metrics prometheus/]
+    HLZ[/healthz/]
+  end
+
+  subgraph data[Datos]
+    PG[(postgres 16<br/>+ timescaledb)]
+    SQLC[sqlc<br/>queries tipadas]
+    ANOM[anomaly<br/>z-score + alerts]
+  end
+
+  subgraph obs[Observabilidad]
+    PROM[(prometheus)]
+    GRAF[grafana]
+  end
+
+  MOB -->|HTTPS + JWT| R
+  WEB -->|HTTPS + JWT| R
+  CURL --> R
+
+  R --> MW
+  R --> HLZ
+  R --> MET
+  R --> WH
+
+  MW --> GQL
+  GQL --> SVC
+  WH --> SVC
+  SVC --> SQLC
+  SQLC --> PG
+  SVC --> ANOM
+  ANOM --> PG
+
+  MET -.scrape.-> PROM
+  PROM --> GRAF
+```
+
+Si el diagrama de arriba no te renderea (algunos readers de markdown no
+lo hacen), el flujo en una linea es: cliente -> router chi -> middleware
+de auth JWT -> resolvers graphql -> service layer -> sqlc/pgx ->
+postgres+timescaledb. Al costado quedan /healthz y /metrics sin auth, y
+los webhooks externos (mercadopago) que validan firma propia en vez de
+JWT.
+
+Para mas detalle: [docs/architecture.md](docs/architecture.md),
+[docs/openapi.yaml](docs/openapi.yaml) y el schema en
+[graph/schema.graphqls](graph/schema.graphqls).
 
 ## Stack
 
@@ -19,14 +100,10 @@ Esto es un side project, lo uso para probar cosas que en el laburo no me dejan
 - sqlc para queries tipadas
 - pgx como driver
 - chi para routing
-- JWT para auth
-
-## Estado
-
-Arrancando. Ya hay /healthz respondiendo y el loader de config. Proximo paso
-es meter gqlgen y las primeras tablas.
-
-Para una vuelta por como esta armado por dentro, ver [docs/architecture.md](docs/architecture.md).
+- JWT HS256 para auth
+- prometheus/client_golang para metricas
+- Docker + GHCR para los builds
+- GitHub Actions para CI
 
 ## Correr local
 
@@ -56,6 +133,12 @@ Deberias ver algo asi:
 { "status": "ok", "timestamp": "2026-11-06T22:30:00Z" }
 ```
 
+Para ver las metricas:
+
+```bash
+curl -s http://localhost:8080/metrics | head -20
+```
+
 ## Variables de entorno
 
 Todas tienen default razonable salvo `DATABASE_URL` que es obligatoria.
@@ -79,20 +162,26 @@ Todas tienen default razonable salvo `DATABASE_URL` que es obligatoria.
 - `make test`: corre tests con race
 - `make lint`: corre golangci-lint
 - `make fmt`: formatea codigo
+- `make openapi`: valida docs/openapi.yaml
 
 ## Estructura
 
 ```
-cmd/server/      main del proceso
-cmd/migrate/     corre migraciones contra la db
-internal/config/ carga de environment
-internal/health/ healthcheck handler
-internal/auth/   jwt + middleware
-internal/db/     pool pgx y queries generadas por sqlc
-internal/weights/ dominio de peso (conversiones + service)
-internal/webhooks/ handlers HTTP de integraciones (mercadopago, etc)
-graph/           schema graphql y resolvers
-db/              migrations + queries sqlc
+cmd/server/         main del proceso
+cmd/migrate/        corre migraciones contra la db
+internal/config/    carga de environment
+internal/health/    healthcheck handler
+internal/auth/      jwt + middleware
+internal/db/        pool pgx y queries generadas por sqlc
+internal/weights/   dominio de peso (conversiones + service)
+internal/txns/      dominio de plata (transactions + categorias)
+internal/anomaly/   deteccion por z-score
+internal/alerts/    worker y hypertable de alertas
+internal/webhooks/  handlers de integraciones (mercadopago, etc)
+internal/metrics/   contadores e histogramas prometheus
+graph/              schema graphql y resolvers
+db/                 migrations + queries sqlc
+docs/               openapi + arquitectura
 ```
 
 ## Autenticacion
@@ -152,7 +241,6 @@ Hay una ruta chica `/api/me` que devuelve el user del token. Sirve de
 smoke test:
 
 ```bash
-# generar un token con el helper que hay en los tests, o desde codigo:
 TOKEN="pega-tu-token-aca"
 
 curl -s http://localhost:8080/api/me \
@@ -175,8 +263,7 @@ Hay dos tablas en el modulo plata:
   `kind` (`expense`, `income`, `transfer`) y pueden ser globales (las
   trae la migration, `user_id = null`) o propias del user. Un user puede
   renombrar, archivar y crear las que quiera, pero no puede editar las
-  globales: si no le gustan, se archiva la copia global para su user
-  (cuando este el mecanismo de fork) y arma la propia.
+  globales.
 - `transactions`: cada movimiento. Es hypertable sobre `occurred_at`
   (chunk de 7 dias) con FK a `categories`. Guarda `amount` como
   `numeric(14,2)` y una `currency` de 3 letras (ISO 4217). Si viene de
@@ -191,28 +278,21 @@ Hay dos tablas en el modulo plata:
 
 El resolver `createTransaction` normaliza antes de insertar, asi los
 `SUM()` por `kind` funcionan directo sin tener que hacer `ABS()` ni
-casos especiales. Si en algun momento aparecen "reintegros" (expense con
-monto positivo, porque te devolvieron plata) los guardo como `income`
-categorizado como "Reintegro", no como expense positivo. Mas facil que
-discutir con los charts.
+casos especiales.
 
 ### Monedas
 
 El server no convierte. Guardo cada transaction en la moneda original y
 la conversion a ARS la hago en el cliente con los tipos de cambio
-cacheados. Esto es a proposito: si el cliente cambia el tipo de cambio
-(porque en Argentina hay varios) no quiero reescribir la historia.
-
-Hay ganas de agregar una tabla `fx_rates` para cachear cotizaciones en
-el server y exponerlas por GraphQL, pero no es parte del alcance del
-portfolio demo.
+cacheados. Si el cliente cambia el tipo de cambio (porque en Argentina
+hay varios) no quiero reescribir la historia.
 
 ### Deduplicacion
 
 Cuando una transaction viene de una integracion (Mercado Pago, por
 ejemplo), el par `(user_id, external_source, external_ref)` tiene un
 unique index parcial. Si el webhook re-dispara el mismo payment id,
-el insert falla con `23505` y el handler devuelve 200 igual. Ver abajo.
+el insert falla con `23505` y el handler devuelve 200 igual.
 
 ### Webhook de Mercado Pago
 
@@ -223,52 +303,65 @@ MP manda eventos `POST /webhooks/mercadopago` con un header
 id:<data.id>;request-id:<x-request-id>;ts:<timestamp>;
 ```
 
-El secret se configura en `MP_WEBHOOK_SECRET` (el que figura en el
-panel de MP al crear la integracion). Si no esta seteado, el endpoint
-responde 503 y loguea un warning. Fuera de dev no tiene sentido tenerlo
-apagado.
-
-El handler ademas:
+El secret se configura en `MP_WEBHOOK_SECRET`. El handler:
 
 - Rechaza requests fuera de una ventana de 5 minutos (replay).
-- Deduplica por `x-request-id` en memoria 10 minutos (MP reintenta el
-  mismo evento si no respondemos 200 rapido).
+- Deduplica por `x-request-id` en memoria 10 minutos.
 - Encola el evento validado en un `EventSink`. En dev el sink es un
-  noop que solo loguea. En prod va a ir a un worker que llama a la API
-  de MP con el `data.id`, trae el detalle del payment, infiere la
-  categoria y escribe el row en `transactions` usando los campos
-  `external_source = "mercadopago"` + `external_ref = <payment_id>`
-  para pegarle al unique index de dedup.
+  noop. En prod va a un worker que trae el detalle, infiere la
+  categoria y escribe el row usando el unique index para dedup.
 
-### Categorizacion
+## Deteccion de anomalias
 
-Por ahora la categoria viaja explicita en el input del mutation. Mas
-adelante quiero meter un clasificador bobo por texto (expresiones
-regulares sobre `note` y `description` del detalle de MP) que sugiera
-la mas probable: "uber" -> Transporte, "disco" -> Super, etc. No es ML,
-es un switch gigante y listo.
+El modulo `internal/anomaly` arma una ventana rodante de 14 pesos
+previos por user y calcula z-score. Si abs(z) > 3 y hay al menos 7
+puntos de historia, dispara una alerta que se guarda en la hypertable
+`alerts` y se expone por graphql. Las alertas se muestran en el
+dashboard web (widget de anomalias) y en el home del mobile.
 
-Si el user no manda categoria, la transaction queda con `category_id =
-null`. Cuando esto pasa el dashboard las junta como "Sin categoria" y
-el cliente ofrece un bulk-update. Es feo pero prefiero eso a adivinar
-mal y ensuciar las series de tiempo.
+El worker corre asincrono: el resolver de `createWeight` manda el
+weight_id al channel y vuelve. Esto es a proposito, no quiero que un
+error del detector rompa el write principal.
 
-### Por que no usar `accounts`
+## Observabilidad
 
-Varias apps del rubro modelan "cuentas" (efectivo, tarjeta, caja de
-ahorro) como tablas separadas y despues tienen una visibilidad lio con
-las transferencias entre cuentas. Pulso arranca con un unico "wallet"
-implicito por user. Si en algun momento aparecen multiples cuentas:
+`/metrics` expone en formato prometheus. Metricas principales:
 
-- Se agrega tabla `accounts (id, user_id, name, kind, currency)`.
-- `transactions` gana un `account_id NOT NULL`.
-- La transferencia pasa a ser un par de `transactions` linkeadas por un
-  `transfer_id` (asi el `SUM()` por account sigue dando bien).
+- `pulso_http_requests_total{route,method,status}`
+- `pulso_http_request_duration_seconds{route,method}` (histograma)
+- `pulso_db_queries_total{op}`
+- `pulso_alerts_emitted_total{kind}`
+- `pulso_webhooks_events_total{provider,result}`
 
-Mientras no haya varias cuentas no vale la pena, agrega complejidad sin
-beneficio. Si lo necesitas antes de que lo mueva, abri un issue.
+Hay un dashboard de grafana en `docs/dashboards/` (todavia por subir,
+queda para la proxima iteracion).
+
+## Docker y despliegue
+
+Imagen multi-arch publicada en GHCR en cada push a main:
+
+```
+ghcr.io/matiashernanserrato/pulso-api:latest
+ghcr.io/matiashernanserrato/pulso-api:main
+ghcr.io/matiashernanserrato/pulso-api:sha-<corto>
+```
+
+Correr:
+
+```bash
+docker run -d --name pulso-api \
+  -p 8080:8080 \
+  -e DATABASE_URL="postgres://..." \
+  -e JWT_SECRET="..." \
+  ghcr.io/matiashernanserrato/pulso-api:latest
+```
+
+El target de deploy real va a ser fly.io. La config vive en `fly.toml`
+(se suma cuando corra el deploy final).
 
 ## Por que Go y no Node
 
-Porque ya tengo 9 años de Node y queria probar otra cosa. Ademas para series
-temporales el ecosistema de Go esta mas maduro de lo que parece.
+Porque ya tengo 9 años de Node y queria probar otra cosa. Ademas para
+series temporales el ecosistema de Go esta mas maduro de lo que
+parece: pgx + sqlc es una experiencia muy piola, los tipos no mienten
+y no tengo que pelearme con ORMs que se creen que saben mas que yo.
