@@ -32,10 +32,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 WORKDIR /app
 COPY --from=build /out/pulso-api /app/pulso-api
+COPY --from=build /src/db/migrations /app/db/migrations
 COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 ENV TZ=America/Argentina/Buenos_Aires
 EXPOSE 8080
 USER nonroot:nonroot
+# ENTRYPOINT sin subcomando: fly le pasa "serve" o "worker" via processes,
+# y el release_command le pasa "migrate up". El default es "serve" si no
+# viene nada, asi docker-compose sigue andando como antes.
 ENTRYPOINT ["/app/pulso-api"]
+CMD ["serve"]

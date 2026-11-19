@@ -1,0 +1,75 @@
+# Config de deploy en fly.io.
+#
+# App name: pulso-api
+# Region primaria: gru (Sao Paulo), por latencia desde Argentina. Despues
+# agrego iad si alguien vive en el norte global y lo nota.
+#
+# Para deployar: fly deploy --build-arg COMMIT=$(git rev-parse --short HEAD)
+
+app = "pulso-api"
+primary_region = "gru"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  GIN_MODE = "release"
+  OTEL_EXPORTER_OTLP_PROTOCOL = "grpc"
+  # Las variables sensibles las seteo con `fly secrets set`:
+  #   DATABASE_URL, JWT_SECRET, MP_WEBHOOK_SECRET, OTEL_EXPORTER_OTLP_ENDPOINT
+
+[processes]
+  app = "/app/pulso-api serve"
+  worker = "/app/pulso-api worker"
+
+[[services]]
+  processes = ["app"]
+  protocol = "tcp"
+  internal_port = 8080
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "get"
+    path = "/healthz"
+    protocol = "http"
+    tls_skip_verify = false
+
+[metrics]
+  port = 8080
+  path = "/metrics"
+
+[[vm]]
+  processes = ["app"]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[[vm]]
+  processes = ["worker"]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+[deploy]
+  release_command = "/app/pulso-api migrate up"
+  strategy = "rolling"

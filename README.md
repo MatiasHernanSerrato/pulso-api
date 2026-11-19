@@ -27,6 +27,7 @@ bien usados).
 - [Deteccion de anomalias](#deteccion-de-anomalias)
 - [Observabilidad](#observabilidad)
 - [Docker y despliegue](#docker-y-despliegue)
+- [Fly.io](#flyio)
 
 ## Arquitectura
 
@@ -362,8 +363,54 @@ docker run -d --name pulso-api \
   ghcr.io/matiashernanserrato/pulso-api:latest
 ```
 
-El target de deploy real va a ser fly.io. La config vive en `fly.toml`
-(se suma cuando corra el deploy final).
+El target de deploy real es fly.io, ver seccion de abajo.
+
+## Fly.io
+
+Config en `fly.toml`. Dos procesos:
+
+- `app`: el server HTTP, escalable, 512 MB.
+- `worker`: loop cada 60s que corre deteccion de anomalias y mas
+  adelante consumira la outbox de Mercado Pago. 256 MB alcanza.
+
+El binario es el mismo, cambia el subcomando. `main.go` ruteea por
+`os.Args[1]` entre `serve`, `worker`, `migrate` y `version`. Sin
+argumentos default a `serve`, asi el docker-compose local sigue
+funcionando igual.
+
+### Deploy manual
+
+```bash
+fly auth login
+fly apps create pulso-api            # la primera vez
+fly volumes create pulso_data --region gru --size 1
+fly secrets set \
+  DATABASE_URL="postgres://user:pass@..." \
+  JWT_SECRET="$(openssl rand -base64 32)" \
+  MP_WEBHOOK_SECRET="$(openssl rand -base64 32)"
+
+fly deploy \
+  --build-arg COMMIT="$(git rev-parse --short HEAD)" \
+  --build-arg VERSION="$(git describe --tags --always)" \
+  --build-arg BUILD_DATE="$(date -u +%FT%TZ)"
+```
+
+El `release_command` de fly corre `pulso-api migrate up` antes de
+rotar las maquinas, asi nunca llega trafico a una version con la db
+desfasada.
+
+### Healthcheck
+
+Fly le pega a `/healthz` cada 15s via `http_checks` del `[[services]]`.
+Si falla 3 veces seguidas rolea la maquina. El handler devuelve 200
+mientras el pool de pgx responda un `Ping` en menos de 500ms.
+
+### Autostop
+
+`auto_stop_machines = "stop"` apaga la maquina cuando no hay trafico,
+pero `min_machines_running = 1` me asegura que siempre quede una
+despierta. En un side project con 3 usuarios esto es la diferencia
+entre pagar 2 USD y 20 USD por mes.
 
 ## Por que Go y no Node
 
