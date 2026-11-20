@@ -174,8 +174,7 @@ Todas tienen default razonable salvo `DATABASE_URL` que es obligatoria.
 ## Estructura
 
 ```
-cmd/server/         main del proceso
-cmd/migrate/        corre migraciones contra la db
+cmd/server/         main del proceso (serve, worker, migrate subcmds)
 internal/config/    carga de environment
 internal/health/    healthcheck handler
 internal/auth/      jwt + middleware
